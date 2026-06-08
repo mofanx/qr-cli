@@ -1,0 +1,65 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qr-cli"
+version = "0.1.0"
+description = "Fast QR code generator with clipboard support and batch processing"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "mofanx", email = "yanwuning@live.cn"}
+]
+keywords = ["qr", "qrcode", "clipboard", "shortcut", "batch"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+]
+requires-python = ">=3.8"
+dependencies = [
+    "qrcode>=8.0",
+    "Pillow>=10.0",
+    "pyperclip>=1.8.0",
+    "click>=8.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "black>=23.0",
+    "flake8>=6.0",
+]
+hotkey = [
+    "keyboard>=0.13.5",
+]
+
+[project.scripts]
+qr = "qr_cli.cli:main"
+qr-cli = "qr_cli.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/mofanx/qr-cli"
+Repository = "https://github.com/mofanx/qr-cli"
+
+[tool.setuptools]
+packages = ["qr_cli"]
+
+[tool.setuptools.package-data]
+qr_cli = ["*.py"]
+
+[tool.black]
+line-length = 100
+target-version = ["py38"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]

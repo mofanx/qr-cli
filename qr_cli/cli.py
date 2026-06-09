@@ -22,7 +22,9 @@ from qr_cli.clipboard import get_clipboard_text
 @click.option("--clipboard", "-c", is_flag=True, help="Use text from clipboard (default)")
 @click.option("--file", "-f", type=click.Path(exists=True), help="Read text from file")
 @click.option("--lines", "-l", is_flag=True, help="Line mode: each line = one QR (for URL lists)")
-@click.option("--chunk-size", help="Chunk size in bytes for large text (default: auto)")
+@click.option("--hex", "-H", is_flag=True, help="Use hex encoding (for binary data/recovery)")
+@click.option("--label", "-L", is_flag=True, help="Add [序号/总数] label to content")
+@click.option("--chunk-size", help="Chunk size in bytes/chars (default: auto)")
 @click.option("--output", "-o", help="Output file path")
 @click.option("--output-dir", "-d", help="Output directory for multi-QR mode")
 @click.option("--terminal", "-T", is_flag=True, help="Display QR code in terminal")
@@ -32,7 +34,7 @@ from qr_cli.clipboard import get_clipboard_text
 @click.option("--border", default=4, help="QR code border size (default: 4)")
 @click.option("--error-correction", default="M", type=click.Choice(["L", "M", "Q", "H"]),
               help="Error correction level (default: M)")
-def main(text, clipboard, file, lines, chunk_size, output, output_dir, terminal, hotkey,
+def main(text, clipboard, file, lines, hex, label, chunk_size, output, output_dir, terminal, hotkey,
          hotkey_code, box_size, border, error_correction):
     """
     qr - Fast QR code generator with clipboard support.
@@ -45,8 +47,11 @@ def main(text, clipboard, file, lines, chunk_size, output, output_dir, terminal,
 
     \b
     File Processing:
-        qr -f code.py -d ./qr    # Large text -> auto chunked QRs
-        qr -f urls.txt -l -d ./qr  # Each line -> one QR
+        qr -f code.py -d ./qr           # Plain text chunks
+        qr -f code.py -d ./qr -L       # With labels: [1/3]text
+        qr -f code.py -d ./qr -H       # Hex encoding only
+        qr -f code.py -d ./qr -H -L    # Hex with labels: 1/3:hex
+        qr -f urls.txt -l -d ./qr      # Each line -> one QR
 
     \b
     Terminal Display:
@@ -119,6 +124,8 @@ def main(text, clipboard, file, lines, chunk_size, output, output_dir, terminal,
                 data,
                 output_dir,
                 chunk_size=chunk,
+                use_hex=hex,
+                add_label=label,
                 error_correction=error_correction,
                 box_size=box_size,
                 border=border,

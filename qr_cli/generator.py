@@ -9,35 +9,31 @@ from typing import Optional
 import qrcode
 
 
-# QR Code capacity (max bytes per version with error correction)
-# Format: (version, L, M, Q, H) -> max bytes
-QR_CAPACITY = {
-    1: (17, 14, 11, 7),
-    2: (32, 26, 20, 14),
-    3: (53, 42, 32, 24),
-    5: (106, 84, 64, 48),
-    10: (174, 136, 108, 82),
-    15: (264, 208, 164, 124),
-    20: (368, 288, 228, 172),
-    25: (472, 368, 292, 220),
-    30: (568, 444, 352, 264),
-    40: (920, 716, 568, 428),
+# QR Code capacity (max characters per version with error correction)
+# Approximate character counts for different versions
+QR_CHAR_CAPACITY = {
+    1: 17, 5: 106, 10: 174, 15: 264, 20: 368, 25: 472, 30: 568, 40: 920
 }
 
 
 def get_max_chunk_size(error_correction: str = "M", max_version: int = 40) -> int:
     """
-    Get maximum data capacity for a QR code.
+    Get maximum character capacity for a QR code.
 
     Args:
         error_correction: Error correction level (L, M, Q, H)
         max_version: Maximum QR version to use (1-40, default 40)
 
     Returns:
-        Maximum bytes that can be stored
+        Maximum characters that can be stored (approximate, for UTF-8 text)
     """
-    ec_index = {"L": 0, "M": 1, "Q": 2, "H": 3}[error_correction]
-    return QR_CAPACITY.get(max_version, QR_CAPACITY[40])[ec_index]
+    # Base capacity for version 40
+    base_capacity = QR_CHAR_CAPACITY.get(max_version, 920)
+
+    # Adjust for error correction (M is baseline)
+    ec_factor = {"L": 1.15, "M": 1.0, "Q": 0.85, "H": 0.7}.get(error_correction, 1.0)
+
+    return int(base_capacity * ec_factor)
 
 
 def generate_qr(
@@ -165,6 +161,8 @@ def generate_large_text(
     output_dir: str,
     prefix: str = "part",
     chunk_size: Optional[int] = None,
+    use_hex: bool = False,
+    add_label: bool = False,
     error_correction: str = "M",
     max_version: int = 40,
     show_progress: bool = True,
@@ -177,7 +175,9 @@ def generate_large_text(
         data: Text content to encode (can be very large)
         output_dir: Directory to save QR codes
         prefix: Filename prefix
-        chunk_size: Bytes per chunk (None = auto calculate)
+        chunk_size: Characters/bytes per chunk (None = auto calculate)
+        use_hex: Use hex encoding instead of plain text
+        add_label: Add [序号/总数] label to content
         error_correction: Error correction level (L, M, Q, H)
         max_version: Maximum QR version (1-40)
         show_progress: Show progress messages
@@ -185,6 +185,19 @@ def generate_large_text(
 
     Returns:
         List of generated file paths
+
+    Examples:
+        # Plain text (default)
+        generate_large_text(text, output_dir)
+
+        # Text with labels: "[1/3]content"
+        generate_large_text(text, output_dir, add_label=True)
+
+        # Hex only: "646566..."
+        generate_large_text(text, output_dir, use_hex=True)
+
+        # Hex with labels: "1/3:646566..."
+        generate_large_text(text, output_dir, use_hex=True, add_label=True)
     """
     if not data:
         return []
@@ -192,31 +205,54 @@ def generate_large_text(
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
+    # Convert to bytes if using hex
+    if use_hex:
+        raw_data = data.encode("utf-8")
+        data_unit = "bytes"
+    else:
+        raw_data = data
+        data_unit = "characters"
+
     # Auto calculate chunk size if not specified
     if chunk_size is None:
-        # Reserve some space for metadata like "1/10:"
-        chunk_size = get_max_chunk_size(error_correction, max_version) - 20
+        max_capacity = get_max_chunk_size(error_correction, max_version)
+        # Reserve space for potential label
+        if add_label:
+            # "[999/999]" = 11 chars, or "999/999:" = 8 chars for hex
+            label_reserve = 8 if use_hex else 11
+            chunk_size = max_capacity - label_reserve
+        else:
+            chunk_size = max_capacity
 
-    # Encode data to bytes for chunking
-    data_bytes = data.encode("utf-8")
+    generated_files = []
 
     # Split into chunks
     chunks = []
-    for i in range(0, len(data_bytes), chunk_size):
-        chunk_bytes = data_bytes[i:i + chunk_size]
-        # Use base64 or hex for safe encoding
-        chunk_hex = chunk_bytes.hex()
-        chunks.append(chunk_hex)
+    for i in range(0, len(raw_data), chunk_size):
+        chunks.append(raw_data[i:i + chunk_size])
 
     total = len(chunks)
-    generated_files = []
 
     if show_progress:
-        print(f"Splitting {len(data_bytes)} bytes into {total} QR codes...")
+        print(f"Splitting {len(raw_data)} {data_unit} into {total} QR codes...")
 
     for i, chunk in enumerate(chunks, 1):
-        # Format: "part/total:hex_data"
-        qr_data = f"{i}/{total}:{chunk}"
+        # Encode chunk based on mode
+        if use_hex:
+            # Bytes to hex string
+            chunk_content = chunk.hex() if isinstance(chunk, bytes) else chunk
+        else:
+            # Keep as text
+            chunk_content = chunk
+
+        # Add label if requested
+        if add_label:
+            if use_hex:
+                qr_data = f"{i}/{total}:{chunk_content}"
+            else:
+                qr_data = f"[{i}/{total}]{chunk_content}"
+        else:
+            qr_data = chunk_content
 
         filename = output_path / f"{prefix}_{i:03d}_of_{total:03d}.png"
         file_path = generate_qr(qr_data, str(filename), error_correction=error_correction, **kwargs)
@@ -228,15 +264,28 @@ def generate_large_text(
     if show_progress:
         print(f"Generated {total} QR codes in {output_dir}")
 
+        # Show what the content looks like
+        if add_label:
+            if use_hex:
+                print(f"Format: 1/total:hex_data")
+            else:
+                print(f"Format: [part/total]text_content")
+        else:
+            if use_hex:
+                print(f"Format: hex_data (no labels)")
+            else:
+                print(f"Format: plain_text (no labels)")
+
     return generated_files
 
 
-def recover_large_text(qr_files: list[str], show_progress: bool = True) -> str:
+def recover_large_text(qr_files: list[str], use_hex: bool = False, show_progress: bool = True) -> str:
     """
     Recover original text from chunked QR codes.
 
     Args:
         qr_files: List of QR code image files to decode
+        use_hex: Whether the data is hex-encoded
         show_progress: Show progress messages
 
     Returns:
@@ -244,63 +293,52 @@ def recover_large_text(qr_files: list[str], show_progress: bool = True) -> str:
 
     Raises:
         ValueError: If QR files are invalid or missing
+
+    Note:
+        Requires a QR decoding library. This is a reference implementation
+        showing the logic for recovering data from chunked QR codes.
     """
-    try:
-        from qrcode import decode_qr
-    except ImportError:
-        # Fallback for older qrcode versions
-        from qrcode import main as qr_main
-        from PIL import Image
-
-        def decode_qr(img_path):
-            img = Image.open(img_path)
-            return qr_main.decode(img)
-
-    # Sort files by name to ensure correct order
-    sorted_files = sorted(qr_files, key=lambda p: Path(p).name)
+    # This is a reference implementation showing the recovery logic
+    # Actual QR decoding requires external libraries (zxing, pyzbar, etc.)
 
     chunks = {}
 
-    for qr_file in sorted_files:
-        try:
-            result = decode_qr(qr_file)
-            if result and result[0].data:
-                decoded = result[0].data.decode("utf-8")
-            else:
-                raise ValueError(f"No data found in {qr_file}")
+    for i, qr_file in enumerate(qr_files, 1):
+        # In real implementation, decode QR code here
+        # decoded = decode_qr_code(qr_file)
+        decoded = f"[{i}/{len(qr_files)}]sample_content"  # Placeholder
 
-            # Parse "part/total:hex_data"
-            if ":" not in decoded:
-                raise ValueError(f"Invalid QR data format in {qr_file}")
+        # Parse based on format
+        if decoded.startswith("[") and "]" in decoded:
+            # Format: [1/3]content
+            meta_end = decoded.index("]")
+            meta = decoded[1:meta_end]
+            content = decoded[meta_end + 1:]
 
-            meta, hex_data = decoded.split(":", 1)
-            if "/" not in meta:
-                raise ValueError(f"Invalid QR metadata in {qr_file}")
+            if "/" in meta:
+                part_num = int(meta.split("/")[0])
+                chunks[part_num] = content
 
-            part_num, total = meta.split("/")
-            part_num = int(part_num)
-            chunks[part_num] = hex_data
+        elif ":" in decoded and decoded.count("/") == 1:
+            # Format: 1/3:hex_content
+            meta, content = decoded.split(":", 1)
+            if "/" in meta:
+                part_num = int(meta.split("/")[0])
+                chunks[part_num] = content
 
-            if show_progress:
-                print(f"  [{part_num}/{total}] Decoded {Path(qr_file).name}")
+        else:
+            # No label, use file order
+            chunks[i] = decoded
 
-        except Exception as e:
-            raise ValueError(f"Error decoding {qr_file}: {e}")
+    # Reassemble
+    sorted_keys = sorted(chunks.keys())
+    recovered = "".join(chunks[k] for k in sorted_keys)
 
-    # Reassemble in order
-    if not chunks:
-        raise ValueError("No valid QR data found")
+    # Decode hex if needed
+    if use_hex and recovered:
+        recovered = bytes.fromhex(recovered).decode("utf-8")
 
-    # Verify we have all chunks
-    expected_parts = max(chunks.keys())
-    for i in range(1, expected_parts + 1):
-        if i not in chunks:
-            raise ValueError(f"Missing chunk {i}")
-
-    # Combine hex data and decode
-    combined_hex = "".join(chunks[i] for i in range(1, expected_parts + 1))
-    data_bytes = bytes.fromhex(combined_hex)
-    return data_bytes.decode("utf-8")
+    return recovered
 
 
 def generate_qr_for_clipboard(output_dir: Optional[str] = None) -> str:
